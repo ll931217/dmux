@@ -8,6 +8,7 @@ import {
   isCancel,
   cancel,
   note,
+  text,
 } from '@clack/prompts';
 import { generateText } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
@@ -17,7 +18,17 @@ import { getAPIKey, getProviderMeta, writeAIConfig } from './aiConfig.js';
 import { persistEnvVarToShell } from './shellEnvSetup.js';
 import type { AIProviderName } from '../types.js';
 
+const CUSTOM_MODEL_VALUE = '__custom__';
+
 function getModelOptions(provider: AIProviderName) {
+  const presets = getPresetModelOptions(provider);
+  return [
+    ...presets,
+    { value: CUSTOM_MODEL_VALUE, label: 'Custom model ID', hint: 'enter your own model identifier' },
+  ];
+}
+
+function getPresetModelOptions(provider: AIProviderName) {
   switch (provider) {
     case 'openrouter':
       return [
@@ -43,11 +54,11 @@ function getModelOptions(provider: AIProviderName) {
   }
 }
 
-function createProviderForTest(provider: AIProviderName, apiKey: string) {
+function createProviderForTest(provider: AIProviderName, apiKey: string, baseURL?: string) {
   switch (provider) {
     case 'openrouter':
       return createOpenAI({
-        baseURL: 'https://openrouter.ai/api/v1',
+        baseURL: baseURL || 'https://openrouter.ai/api/v1',
         apiKey,
         headers: {
           'HTTP-Referer': 'https://github.com/dmux/dmux',
@@ -55,11 +66,11 @@ function createProviderForTest(provider: AIProviderName, apiKey: string) {
         },
       });
     case 'openai':
-      return createOpenAI({ apiKey });
+      return createOpenAI({ apiKey, ...(baseURL && { baseURL }) });
     case 'anthropic':
-      return createAnthropic({ apiKey });
+      return createAnthropic({ apiKey, ...(baseURL && { baseURL }) });
     case 'google':
-      return createGoogleGenerativeAI({ apiKey });
+      return createGoogleGenerativeAI({ apiKey, ...(baseURL && { baseURL }) });
   }
 }
 
@@ -108,19 +119,66 @@ export async function runAIProviderSetupWizard(): Promise<boolean> {
     apiKey = entered;
   }
 
-  const model = await select<string>({
+  const modelSelection = await select<string>({
     message: 'Choose your default model',
     options: getModelOptions(provider),
   });
-  if (isCancel(model)) {
+  if (isCancel(modelSelection)) {
     cancel('Setup cancelled');
     return false;
+  }
+
+  let model = modelSelection;
+  if (modelSelection === CUSTOM_MODEL_VALUE) {
+    const customModel = await text({
+      message: 'Enter custom model ID:',
+      placeholder: meta.defaultModels.fast,
+      validate: (value) => {
+        if (!value || !value.trim()) return 'Model ID is required';
+      },
+    });
+    if (isCancel(customModel)) {
+      cancel('Setup cancelled');
+      return false;
+    }
+    model = customModel;
+  }
+
+  // Optional base URL for corporate proxies
+  const wantsBaseURL = await confirm({
+    message: 'Use a custom base URL? (for corporate proxies)',
+    initialValue: false,
+  });
+  if (isCancel(wantsBaseURL)) {
+    cancel('Setup cancelled');
+    return false;
+  }
+
+  let baseURL: string | undefined;
+  if (wantsBaseURL) {
+    const enteredURL = await text({
+      message: 'Enter base URL:',
+      placeholder: 'https://api.example.com/v1',
+      validate: (value) => {
+        if (!value || !value.trim()) return 'URL is required';
+        try {
+          new URL(value);
+        } catch {
+          return 'Must be a valid URL';
+        }
+      },
+    });
+    if (isCancel(enteredURL)) {
+      cancel('Setup cancelled');
+      return false;
+    }
+    baseURL = enteredURL;
   }
 
   const s = spinner();
   s.start('Testing connection...');
   try {
-    const providerInstance = createProviderForTest(provider, apiKey);
+    const providerInstance = createProviderForTest(provider, apiKey, baseURL);
     await generateText({
       model: (providerInstance as unknown as (id: string) => Parameters<typeof generateText>[0]['model'])(model),
       prompt: 'Hi',
@@ -140,7 +198,11 @@ export async function runAIProviderSetupWizard(): Promise<boolean> {
     }
   }
 
-  await writeAIConfig({ provider, models: { fast: model, default: model } });
+  await writeAIConfig({
+    provider,
+    ...(baseURL && { baseURL }),
+    models: { fast: model, default: model },
+  });
 
   if (apiKey !== existingKey) {
     const { shellConfigPath } = await persistEnvVarToShell(meta.envVar, apiKey);

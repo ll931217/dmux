@@ -6,6 +6,7 @@ export type ModelRole = 'fast' | 'default';
 
 export interface AIProviderConfig {
   provider: AIProviderName;
+  baseURL?: string;
   models: {
     fast: string;
     default: string;

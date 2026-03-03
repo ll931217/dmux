@@ -28,14 +28,14 @@ export class AIProviderService {
     if (!apiKey) {
       throw new Error(`API key not found for ${this.config.provider}`);
     }
-    this.providerInstance = this.createProvider(this.config.provider, apiKey);
+    this.providerInstance = this.createProvider(this.config.provider, apiKey, this.config.baseURL);
   }
 
-  private createProvider(provider: AIProviderName, apiKey: string): ProviderFactory {
+  private createProvider(provider: AIProviderName, apiKey: string, baseURL?: string): ProviderFactory {
     switch (provider) {
       case 'openrouter':
         return createOpenAI({
-          baseURL: 'https://openrouter.ai/api/v1',
+          baseURL: baseURL || 'https://openrouter.ai/api/v1',
           apiKey,
           headers: {
             'HTTP-Referer': 'https://github.com/dmux/dmux',
@@ -43,11 +43,11 @@ export class AIProviderService {
           },
         }) as unknown as ProviderFactory;
       case 'openai':
-        return createOpenAI({ apiKey }) as unknown as ProviderFactory;
+        return createOpenAI({ apiKey, ...(baseURL && { baseURL }) }) as unknown as ProviderFactory;
       case 'anthropic':
-        return createAnthropic({ apiKey }) as unknown as ProviderFactory;
+        return createAnthropic({ apiKey, ...(baseURL && { baseURL }) }) as unknown as ProviderFactory;
       case 'google':
-        return createGoogleGenerativeAI({ apiKey }) as unknown as ProviderFactory;
+        return createGoogleGenerativeAI({ apiKey, ...(baseURL && { baseURL }) }) as unknown as ProviderFactory;
     }
   }
 

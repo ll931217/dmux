@@ -88,8 +88,12 @@ class Dmux {
     // Check for migration from old config location
     await this.migrateOldConfig();
 
-    // First-run onboarding (tmux config + OpenRouter API key)
-    await runFirstRunOnboardingIfNeeded();
+    // First-run onboarding (tmux config + AI provider setup)
+    const onboardingOk = await runFirstRunOnboardingIfNeeded();
+    if (!onboardingOk) {
+      console.log(chalk.yellow('Setup cancelled. Run `dmux` again to configure.'));
+      process.exit(0);
+    }
 
     // Initialize config file if it doesn't exist
     if (!await this.fileExists(this.panesFile)) {

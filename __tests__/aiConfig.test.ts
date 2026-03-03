@@ -19,6 +19,7 @@ import {
   detectProviderFromEnv,
   getAPIKey,
   resolveAIConfig,
+  resolveBaseURL,
 } from '../src/utils/aiConfig.js';
 
 const PROVIDERS: AIProviderName[] = ['openrouter', 'openai', 'anthropic', 'google'];
@@ -30,6 +31,20 @@ const ENV_VARS = [
   'GOOGLE_GENERATIVE_AI_API_KEY',
 ] as const;
 
+const MODEL_ENV_VARS = [
+  'OPENROUTER_MODEL',
+  'OPENAI_MODEL',
+  'ANTHROPIC_MODEL',
+  'GOOGLE_MODEL',
+] as const;
+
+const BASE_URL_ENV_VARS = [
+  'OPENROUTER_BASE_URL',
+  'OPENAI_BASE_URL',
+  'ANTHROPIC_BASE_URL',
+  'GOOGLE_BASE_URL',
+] as const;
+
 describe('aiConfig', () => {
   const originalEnv = process.env;
 
@@ -37,6 +52,12 @@ describe('aiConfig', () => {
     vi.clearAllMocks();
     process.env = { ...originalEnv };
     for (const key of ENV_VARS) {
+      delete process.env[key];
+    }
+    for (const key of MODEL_ENV_VARS) {
+      delete process.env[key];
+    }
+    for (const key of BASE_URL_ENV_VARS) {
       delete process.env[key];
     }
   });
@@ -210,13 +231,34 @@ describe('aiConfig', () => {
     });
   });
 
+  describe('resolveBaseURL', () => {
+    it('returns config baseURL when provided', () => {
+      expect(resolveBaseURL('anthropic', 'https://custom.example.com')).toBe('https://custom.example.com');
+    });
+
+    it('returns env var baseURL when no config baseURL', () => {
+      process.env.ANTHROPIC_BASE_URL = 'https://proxy.corp.com';
+      expect(resolveBaseURL('anthropic')).toBe('https://proxy.corp.com');
+    });
+
+    it('returns undefined when neither config nor env var set', () => {
+      expect(resolveBaseURL('anthropic')).toBeUndefined();
+    });
+
+    it('prefers config baseURL over env var', () => {
+      process.env.OPENAI_BASE_URL = 'https://env.example.com';
+      expect(resolveBaseURL('openai', 'https://config.example.com')).toBe('https://config.example.com');
+    });
+  });
+
   describe('resolveAIConfig', () => {
     it('returns saved config when file exists', async () => {
       const saved = { provider: 'google' as const, models: { fast: 'gemini-2.0-flash', default: 'gemini-2.0-flash' } };
       vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify(saved));
 
       const result = await resolveAIConfig();
-      expect(result).toEqual(saved);
+      expect(result.provider).toBe('google');
+      expect(result.models).toEqual(saved.models);
     });
 
     it('returns auto-detected config when no saved config and env var is set', async () => {
@@ -250,6 +292,94 @@ describe('aiConfig', () => {
       const registryModels = getProviderMeta('openai').defaultModels;
       expect(result.models).toEqual(registryModels);
       expect(result.models).not.toBe(registryModels);
+    });
+
+    it('uses model env var when set (auto-detect path)', async () => {
+      vi.mocked(fs.readFile).mockRejectedValue(new Error('ENOENT'));
+      process.env.ANTHROPIC_API_KEY = 'test-key';
+      process.env.ANTHROPIC_MODEL = 'claude-opus-4';
+
+      const result = await resolveAIConfig();
+      expect(result.provider).toBe('anthropic');
+      expect(result.models).toEqual({
+        fast: 'claude-opus-4',
+        default: 'claude-opus-4',
+      });
+    });
+
+    it('includes baseURL from env var in auto-detect path', async () => {
+      vi.mocked(fs.readFile).mockRejectedValue(new Error('ENOENT'));
+      process.env.ANTHROPIC_API_KEY = 'test-key';
+      process.env.ANTHROPIC_BASE_URL = 'https://proxy.corp.com';
+
+      const result = await resolveAIConfig();
+      expect(result.baseURL).toBe('https://proxy.corp.com');
+    });
+
+    it('includes baseURL from env var when loading saved config', async () => {
+      const saved = { provider: 'openai' as const, models: { fast: 'gpt-4o', default: 'gpt-4o' } };
+      vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify(saved));
+      process.env.OPENAI_BASE_URL = 'https://proxy.corp.com';
+
+      const result = await resolveAIConfig();
+      expect(result.baseURL).toBe('https://proxy.corp.com');
+    });
+
+    it('prefers saved config baseURL over env var', async () => {
+      const saved = {
+        provider: 'openai' as const,
+        baseURL: 'https://saved.example.com',
+        models: { fast: 'gpt-4o', default: 'gpt-4o' },
+      };
+      vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify(saved));
+      process.env.OPENAI_BASE_URL = 'https://env.example.com';
+
+      const result = await resolveAIConfig();
+      expect(result.baseURL).toBe('https://saved.example.com');
+    });
+
+    it('backward compat: saved config without baseURL still works', async () => {
+      const saved = { provider: 'anthropic' as const, models: { fast: 'claude-haiku-3-5', default: 'claude-haiku-3-5' } };
+      vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify(saved));
+
+      const result = await resolveAIConfig();
+      expect(result.provider).toBe('anthropic');
+      expect(result.models).toEqual(saved.models);
+      expect(result.baseURL).toBeUndefined();
+    });
+
+    it('does not include baseURL in fallback path', async () => {
+      vi.mocked(fs.readFile).mockRejectedValue(new Error('ENOENT'));
+
+      const result = await resolveAIConfig();
+      expect(result.baseURL).toBeUndefined();
+    });
+  });
+
+  describe('provider registry env var fields', () => {
+    it('each provider has baseUrlEnvVar and modelEnvVar', () => {
+      const registry = getProviderRegistry();
+      for (const provider of PROVIDERS) {
+        const meta = registry[provider];
+        expect(meta.baseUrlEnvVar).toBeTypeOf('string');
+        expect(meta.modelEnvVar).toBeTypeOf('string');
+      }
+    });
+
+    it('providers have correct baseUrlEnvVar values', () => {
+      const registry = getProviderRegistry();
+      expect(registry.openrouter.baseUrlEnvVar).toBe('OPENROUTER_BASE_URL');
+      expect(registry.openai.baseUrlEnvVar).toBe('OPENAI_BASE_URL');
+      expect(registry.anthropic.baseUrlEnvVar).toBe('ANTHROPIC_BASE_URL');
+      expect(registry.google.baseUrlEnvVar).toBe('GOOGLE_BASE_URL');
+    });
+
+    it('providers have correct modelEnvVar values', () => {
+      const registry = getProviderRegistry();
+      expect(registry.openrouter.modelEnvVar).toBe('OPENROUTER_MODEL');
+      expect(registry.openai.modelEnvVar).toBe('OPENAI_MODEL');
+      expect(registry.anthropic.modelEnvVar).toBe('ANTHROPIC_MODEL');
+      expect(registry.google.modelEnvVar).toBe('GOOGLE_MODEL');
     });
   });
 });

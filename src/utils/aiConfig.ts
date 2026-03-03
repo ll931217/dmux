@@ -6,6 +6,8 @@ import type { AIProviderConfig, AIProviderName } from '../types.js';
 export interface ProviderMeta {
   label: string;
   envVar: string;
+  baseUrlEnvVar?: string;
+  modelEnvVar?: string;
   defaultModels: { fast: string; default: string };
 }
 
@@ -13,21 +15,29 @@ const PROVIDER_REGISTRY: Record<AIProviderName, ProviderMeta> = {
   openrouter: {
     label: 'OpenRouter',
     envVar: 'OPENROUTER_API_KEY',
+    baseUrlEnvVar: 'OPENROUTER_BASE_URL',
+    modelEnvVar: 'OPENROUTER_MODEL',
     defaultModels: { fast: 'google/gemini-2.5-flash', default: 'openai/gpt-4o-mini' },
   },
   openai: {
     label: 'OpenAI',
     envVar: 'OPENAI_API_KEY',
+    baseUrlEnvVar: 'OPENAI_BASE_URL',
+    modelEnvVar: 'OPENAI_MODEL',
     defaultModels: { fast: 'gpt-4o-mini', default: 'gpt-4o-mini' },
   },
   anthropic: {
     label: 'Anthropic',
     envVar: 'ANTHROPIC_API_KEY',
+    baseUrlEnvVar: 'ANTHROPIC_BASE_URL',
+    modelEnvVar: 'ANTHROPIC_MODEL',
     defaultModels: { fast: 'claude-haiku-3-5', default: 'claude-haiku-3-5' },
   },
   google: {
     label: 'Google AI',
     envVar: 'GOOGLE_GENERATIVE_AI_API_KEY',
+    baseUrlEnvVar: 'GOOGLE_BASE_URL',
+    modelEnvVar: 'GOOGLE_MODEL',
     defaultModels: { fast: 'gemini-2.0-flash', default: 'gemini-2.0-flash' },
   },
 };
@@ -74,10 +84,27 @@ export function getAPIKey(provider: AIProviderName): string | undefined {
   return process.env[PROVIDER_REGISTRY[provider].envVar];
 }
 
+export function resolveBaseURL(provider: AIProviderName, configBaseURL?: string): string | undefined {
+  if (configBaseURL) return configBaseURL;
+  const { baseUrlEnvVar } = PROVIDER_REGISTRY[provider];
+  return baseUrlEnvVar ? process.env[baseUrlEnvVar] : undefined;
+}
+
+function resolveModelsFromEnv(meta: ProviderMeta): { fast: string; default: string } {
+  const envModel = meta.modelEnvVar ? process.env[meta.modelEnvVar] : undefined;
+  if (envModel) {
+    return { fast: envModel, default: envModel };
+  }
+  return { ...meta.defaultModels };
+}
+
 export async function resolveAIConfig(): Promise<AIProviderConfig> {
   const saved = await readAIConfig();
   if (saved) {
-    return saved;
+    return {
+      ...saved,
+      baseURL: resolveBaseURL(saved.provider, saved.baseURL),
+    };
   }
 
   const detected = detectProviderFromEnv();
@@ -85,7 +112,8 @@ export async function resolveAIConfig(): Promise<AIProviderConfig> {
     const meta = PROVIDER_REGISTRY[detected];
     return {
       provider: detected,
-      models: { ...meta.defaultModels },
+      baseURL: resolveBaseURL(detected),
+      models: resolveModelsFromEnv(meta),
     };
   }
 
