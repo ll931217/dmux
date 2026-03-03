@@ -1,6 +1,6 @@
 import { LogService } from '../services/LogService.js';
 import { runTmuxConfigOnboardingIfNeeded } from './tmuxConfigOnboarding.js';
-import { readAIConfig, detectProviderFromEnv, writeAIConfig, getProviderMeta } from './aiConfig.js';
+import { readAIConfig } from './aiConfig.js';
 import { runAIProviderSetupWizard } from './aiSetup.js';
 
 export async function runAIProviderSetupIfNeeded(): Promise<void> {
@@ -9,17 +9,6 @@ export async function runAIProviderSetupIfNeeded(): Promise<void> {
   try {
     const existingConfig = await readAIConfig();
     if (existingConfig) return;
-
-    const detected = detectProviderFromEnv();
-    if (detected) {
-      const meta = getProviderMeta(detected);
-      await writeAIConfig({
-        provider: detected,
-        models: { ...meta.defaultModels },
-      });
-      logger.debug(`Auto-configured AI provider from ${meta.envVar}`, 'onboarding');
-      return;
-    }
 
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
       logger.debug('Skipping AI provider setup — non-interactive terminal', 'onboarding');
