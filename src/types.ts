@@ -1,5 +1,17 @@
 import type { AgentName } from './utils/agentLaunch.js';
 
+// AI Provider configuration types
+export type AIProviderName = 'openrouter' | 'openai' | 'anthropic' | 'google';
+export type ModelRole = 'fast' | 'default';
+
+export interface AIProviderConfig {
+  provider: AIProviderName;
+  models: {
+    fast: string;
+    default: string;
+  };
+}
+
 // Agent status with new analyzing state
 export type AgentStatus = 'idle' | 'analyzing' | 'waiting' | 'working';
 

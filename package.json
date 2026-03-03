@@ -70,6 +70,11 @@
     "dmux": "./dmux"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.53",
+    "@ai-sdk/google": "^3.0.36",
+    "@ai-sdk/openai": "^3.0.39",
+    "@clack/prompts": "^1.0.1",
+    "ai": "^6.0.108",
     "chalk": "^5.3.0",
     "chokidar": "^4.0.3",
     "ink": "^5.0.1",

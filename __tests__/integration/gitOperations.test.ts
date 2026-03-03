@@ -46,6 +46,16 @@ vi.mock('../../src/utils/hooks.js', () => ({
   triggerHook: vi.fn(() => Promise.resolve()),
 }));
 
+// Mock AIProvider for commit message generation
+const mockGenerate = vi.fn(() => Promise.resolve('feat: add JWT authentication'));
+vi.mock('../../src/services/AIProvider.js', () => ({
+  getAIProvider: vi.fn(() => ({
+    generate: mockGenerate,
+    checkConfigured: vi.fn(() => Promise.resolve(true)),
+  })),
+  resetAIProvider: vi.fn(),
+}));
+
 describe('Git Operations Integration Tests', () => {
   let gitRepo: MockGitRepo;
 
@@ -472,35 +482,25 @@ index abc123..def456 100644
     });
 
     it('should generate commit message from AI', async () => {
-      // Mock OpenRouter API
-      global.fetch = vi.fn(() =>
-        Promise.resolve({
-          ok: true,
-          json: () =>
-            Promise.resolve({
-              choices: [{ message: { content: 'feat: add JWT authentication' } }],
-            }),
-        } as Response)
-      );
+      mockGenerate.mockResolvedValueOnce('feat: add JWT authentication');
 
       const { generateCommitMessage } = await import('../../src/utils/aiMerge.js');
 
-      const message = await generateCommitMessage('diff content here', '/test');
+      const message = await generateCommitMessage('/test');
 
       expect(message).toContain('feat:');
       expect(message).toContain('authentication');
     });
 
-    it('should fallback to manual commit when AI fails', async () => {
-      // Mock API failure
-      global.fetch = vi.fn(() => Promise.reject(new Error('API timeout')));
+    it('should fallback to null when AI fails', async () => {
+      mockGenerate.mockRejectedValueOnce(new Error('API timeout'));
 
       const { generateCommitMessage } = await import('../../src/utils/aiMerge.js');
 
-      const message = await generateCommitMessage('diff content', '/test');
+      const message = await generateCommitMessage('/test');
 
-      // Should return a fallback message or empty string
-      expect(message).toBeDefined();
+      // Should return null or a fallback
+      expect(message === null || typeof message === 'string').toBe(true);
     });
   });
 

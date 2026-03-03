@@ -19,6 +19,7 @@ describe('openInEditorAction', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env = { ...originalEnv };
+    delete process.env.EDITOR;
   });
 
   afterEach(() => {

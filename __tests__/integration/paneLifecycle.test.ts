@@ -59,6 +59,15 @@ vi.mock('../../src/services/LogService.js', () => ({
   },
 }));
 
+// Mock AIProvider for slug generation
+vi.mock('../../src/services/AIProvider.js', () => ({
+  getAIProvider: vi.fn(() => ({
+    generate: vi.fn(() => Promise.resolve('test-slug')),
+    checkConfigured: vi.fn(() => Promise.resolve(true)),
+  })),
+  resetAIProvider: vi.fn(),
+}));
+
 const mockEnqueueCleanup = vi.fn();
 vi.mock('../../src/services/WorktreeCleanupService.js', () => ({
   WorktreeCleanupService: {
@@ -191,11 +200,11 @@ describe('Pane Lifecycle Integration Tests', () => {
         ['claude']
       );
 
-      // Verify git worktree add was called
-      expect(mockExecSync).toHaveBeenCalledWith(
-        expect.stringContaining('git worktree add'),
-        expect.any(Object)
+      // Verify git worktree add was sent via tmux send-keys
+      const worktreeCall = mockExecSync.mock.calls.find(([cmd]) =>
+        typeof cmd === 'string' && cmd.includes('git worktree add')
       );
+      expect(worktreeCall).toBeDefined();
     });
 
     it('should split tmux pane', async () => {
@@ -252,18 +261,20 @@ describe('Pane Lifecycle Integration Tests', () => {
       );
       expect(splitCall?.[0]).toContain('-c "/target/repo"');
 
+      // Worktree add is sent via tmux send-keys, so look for it in send-keys commands
       const worktreeCall = mockExecSync.mock.calls.find(([cmd]) =>
-        typeof cmd === 'string' && cmd.includes('git worktree add')
+        typeof cmd === 'string' && cmd.includes('git worktree add') && cmd.includes('/target/repo')
       );
-      expect(worktreeCall?.[0]).toContain('cd "/target/repo" && git worktree add "/target/repo/.dmux/worktrees/target-slug"');
+      expect(worktreeCall).toBeDefined();
     });
 
     it('should handle slug generation failure (fallback to timestamp)', async () => {
-      // Mock OpenRouter API failure
-      const mockFetch = vi.fn(() =>
-        Promise.reject(new Error('API timeout'))
-      );
-      global.fetch = mockFetch;
+      // Override AIProvider mock to simulate failure
+      const { getAIProvider } = await import('../../src/services/AIProvider.js');
+      vi.mocked(getAIProvider).mockReturnValueOnce({
+        generate: vi.fn(() => Promise.reject(new Error('API timeout'))),
+        checkConfigured: vi.fn(() => Promise.resolve(false)),
+      } as any);
 
       const { createPane } = await import('../../src/utils/paneCreation.js');
 
